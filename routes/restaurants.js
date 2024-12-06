@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Restaurant = require('../models/Restaurant');
+const Booking = require('../models/Booking');
 const mockRestaurant = require('../mock/restaurant');
 
 // Get restaurant by ID (mantiene la funcionalidad actual y agrega soporte para MongoDB)
@@ -42,18 +43,62 @@ router.get('/:id/availability', async (req, res) => {
     const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const dayOfWeek = days[queryDate.getDay()];
 
+    // Get existing bookings for the date
+    const existingBookings = await Booking.find({
+      restaurantId: restaurant.id,
+      date: {
+        $gte: new Date(queryDate.setHours(0,0,0)),
+        $lt: new Date(queryDate.setHours(23,59,59))
+      },
+      status: { $nin: ['cancelled'] }
+    });
+
+    // Function to get available tables for a time slot
+    const getAvailableTables = (timeSlot, bookings) => {
+      const bookingsForSlot = bookings.filter(b => b.time === timeSlot.hour);
+      
+      // Get all booked table numbers for this time slot
+      const bookedTableNumbers = bookingsForSlot.reduce((acc, booking) => {
+        return acc.concat(booking.tables || []);
+      }, []);
+
+      // Filter available tables
+      const availableTables = restaurant.bookingConfig.tables
+        .filter(table => 
+          table.isActive && !bookedTableNumbers.includes(table.number)
+        )
+        .map(table => ({
+          number: table.number,
+          capacity: table.capacity
+        }));
+
+      // Calculate total remaining capacity
+      const remainingCapacity = availableTables.reduce((sum, table) => sum + table.capacity, 0);
+
+      return {
+        hour: timeSlot.hour,
+        capacity: remainingCapacity,
+        availableTables
+      };
+    };
+
     // Check if it's a special date
     const specialDate = restaurant.bookingConfig.specialDates.find(
       sd => sd.date.toISOString().split('T')[0] === queryDate.toISOString().split('T')[0]
     );
 
+    let timeSlots;
     if (specialDate) {
-      return res.json({ timeSlots: specialDate.timeSlots });
+      timeSlots = specialDate.timeSlots.map(slot => 
+        getAvailableTables(slot, existingBookings)
+      );
+    } else {
+      timeSlots = restaurant.bookingConfig.regularSchedule[dayOfWeek].map(slot =>
+        getAvailableTables(slot, existingBookings)
+      );
     }
 
-    // Return regular schedule for the day
-    const regularSchedule = restaurant.bookingConfig.regularSchedule[dayOfWeek];
-    res.json({ timeSlots: regularSchedule });
+    res.json({ timeSlots });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

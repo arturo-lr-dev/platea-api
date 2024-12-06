@@ -14,6 +14,70 @@ function generateConfirmationCode() {
   return code;
 }
 
+// Helper function to find available tables
+async function findAvailableTables(restaurant, date, time, guests, existingBookings) {
+  // Get all active tables from the restaurant
+  const availableTables = restaurant.bookingConfig.tables.filter(table => table.isActive);
+  
+  // Get tables that are already booked for this time slot
+  const bookedTableNumbers = existingBookings.reduce((acc, booking) => {
+    return acc.concat(booking.tables || []);
+  }, []);
+
+  // Filter out booked tables and sort by capacity
+  const unbootedTables = availableTables
+    .filter(table => !bookedTableNumbers.includes(table.number))
+    .sort((a, b) => a.capacity - b.capacity);
+
+  // Calculate total available capacity from unbooked tables
+  const totalAvailableCapacity = unbootedTables.reduce((sum, table) => sum + table.capacity, 0);
+  
+  // If total available capacity is less than guests, return null immediately
+  if (totalAvailableCapacity < guests) {
+    return null;
+  }
+
+  // Find the best combination of tables for the guests
+  let remainingGuests = guests;
+  const selectedTables = [];
+
+  for (const table of unbootedTables) {
+    if (remainingGuests <= 0) break;
+    
+    if (table.capacity <= remainingGuests) {
+      selectedTables.push(table.number);
+      remainingGuests -= table.capacity;
+    }
+  }
+
+  // If we couldn't accommodate all guests with smaller tables, try one larger table
+  if (remainingGuests > 0) {
+    const largerTable = unbootedTables.find(table => table.capacity >= guests);
+    if (largerTable) {
+      return [largerTable.number];
+    }
+    return null; // No suitable tables found
+  }
+
+  return selectedTables.length > 0 ? selectedTables : null;
+}
+
+// Helper function to calculate available capacity
+function calculateAvailableCapacity(restaurant, existingBookings) {
+  // Get all active tables
+  const availableTables = restaurant.bookingConfig.tables.filter(table => table.isActive);
+  
+  // Get tables that are already booked
+  const bookedTableNumbers = existingBookings.reduce((acc, booking) => {
+    return acc.concat(booking.tables || []);
+  }, []);
+
+  // Calculate total capacity of unbooked tables
+  return availableTables
+    .filter(table => !bookedTableNumbers.includes(table.number))
+    .reduce((sum, table) => sum + table.capacity, 0);
+}
+
 // Create a new booking
 router.post('/', async (req, res) => {
   try {
@@ -79,16 +143,31 @@ router.post('/', async (req, res) => {
       status: { $nin: ['cancelled'] }
     });
 
-    const totalGuests = existingBookings.reduce((sum, booking) => sum + booking.guests, 0) + guests;
-    if (totalGuests > availableTimeSlot.capacity) {
-      return res.status(400).json({ error: 'Not enough capacity for this time slot' });
+    // Calculate real available capacity based on available tables
+    const realAvailableCapacity = calculateAvailableCapacity(restaurant, existingBookings);
+    
+    if (guests > realAvailableCapacity) {
+      return res.status(400).json({ 
+        error: 'Not enough available tables for this number of guests',
+        availableCapacity: realAvailableCapacity 
+      });
     }
 
-    // Create the booking with confirmation code
+    // Find available tables for the booking
+    const availableTables = await findAvailableTables(restaurant, date, time, guests, existingBookings);
+    if (!availableTables) {
+      return res.status(400).json({ 
+        error: 'No suitable table combination available for this number of guests',
+        availableCapacity: realAvailableCapacity
+      });
+    }
+
+    // Create the booking with confirmation code and assigned tables
     const booking = new Booking({
       ...req.body,
       restaurantId: restaurant.id,
-      confirmationCode: generateConfirmationCode()
+      confirmationCode: generateConfirmationCode(),
+      tables: availableTables
     });
     await booking.save();
 

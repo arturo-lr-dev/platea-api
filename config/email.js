@@ -1,15 +1,34 @@
 const nodemailer = require('nodemailer');
-const QRCode = require('qrcode');
 
+// Crear el transporter de nodemailer
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
   port: process.env.EMAIL_PORT,
-  secure: process.env.EMAIL_SECURE === 'true',
+  secure: process.env.EMAIL_PORT === '465',
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
 });
+
+// Función para enviar emails genéricos
+const sendEmail = async ({ to, subject, html }) => {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_FROM,
+      to,
+      subject,
+      html,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Email sent:', info.messageId);
+    return info;
+  } catch (error) {
+    console.error('Error sending email:', error);
+    throw error;
+  }
+};
 
 const sendBookingConfirmation = async (booking, restaurant) => {
   // Generate QR code with booking details
@@ -216,7 +235,38 @@ const sendBookingConfirmation = async (booking, restaurant) => {
   }
 };
 
+// Función específica para enviar email de vale regalo al destinatario
+const sendGiftCardRecipientEmail = async ({ recipientEmail, recipientName, senderName, amount, giftCardCode, message, expiryDate }) => {
+  const subject = '¡Has recibido un Vale Regalo de Platea!';
+  const html = `
+    <h1>¡Has recibido un Vale Regalo!</h1>
+    <p>¡${senderName} te ha enviado un Vale Regalo de €${amount}!</p>
+    <p>Tu código de Vale Regalo es: <strong>${giftCardCode}</strong></p>
+    ${message ? `<p>Mensaje: ${message}</p>` : ''}
+    <p>Este Vale Regalo es válido hasta el ${new Date(expiryDate).toLocaleDateString()}</p>
+    <p>Puedes usar este código en nuestro restaurante para disfrutar de una experiencia gastronómica única.</p>
+  `;
+
+  return sendEmail({ to: recipientEmail, subject, html });
+};
+
+// Función específica para enviar email de confirmación al comprador
+const sendGiftCardSenderEmail = async ({ senderEmail, recipientName, amount, giftCardCode, expiryDate }) => {
+  const subject = 'Confirmación de compra de Vale Regalo Platea';
+  const html = `
+    <h1>¡Gracias por tu compra!</h1>
+    <p>Has comprado un Vale Regalo de €${amount} para ${recipientName}.</p>
+    <p>El código del Vale Regalo es: <strong>${giftCardCode}</strong></p>
+    <p>El Vale Regalo ha sido enviado a ${recipientName}</p>
+    <p>Válido hasta: ${new Date(expiryDate).toLocaleDateString()}</p>
+  `;
+
+  return sendEmail({ to: senderEmail, subject, html });
+};
+
 module.exports = {
-  transporter,
-  sendBookingConfirmation,
+  sendEmail,
+  sendGiftCardRecipientEmail,
+  sendGiftCardSenderEmail,
+  sendBookingConfirmation
 };

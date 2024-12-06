@@ -4,6 +4,16 @@ const Booking = require('../models/Booking');
 const Restaurant = require('../models/Restaurant');
 const { sendBookingConfirmation } = require('../config/email');
 
+// Helper function to generate confirmation code
+function generateConfirmationCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 // Create a new booking
 router.post('/', async (req, res) => {
   try {
@@ -35,7 +45,7 @@ router.post('/', async (req, res) => {
     }
 
     // Validate if the restaurant is open on the requested date and time
-    const dayOfWeek = bookingDate.toLocaleLowerCase().split(',')[0];
+    const dayOfWeek = bookingDate.toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
     
     // Check if it's a closed day
     if (restaurant.bookingConfig.closedDays.includes(dayOfWeek)) {
@@ -74,10 +84,11 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Not enough capacity for this time slot' });
     }
 
-    // Create the booking
+    // Create the booking with confirmation code
     const booking = new Booking({
       ...req.body,
-      restaurantId: restaurant.id
+      restaurantId: restaurant.id,
+      confirmationCode: generateConfirmationCode()
     });
     await booking.save();
 

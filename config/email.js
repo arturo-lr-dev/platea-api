@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const QRCode = require('qrcode');
 
 // Crear el transporter de nodemailer
 const transporter = nodemailer.createTransport({
@@ -12,13 +13,14 @@ const transporter = nodemailer.createTransport({
 });
 
 // Función para enviar emails genéricos
-const sendEmail = async ({ to, subject, html }) => {
+const sendEmail = async ({ to, subject, html, attachments }) => {
   try {
     const mailOptions = {
       from: process.env.EMAIL_FROM,
       to,
       subject,
       html,
+      attachments
     };
 
     const info = await transporter.sendMail(mailOptions);
@@ -236,32 +238,249 @@ const sendBookingConfirmation = async (booking, restaurant) => {
 };
 
 // Función específica para enviar email de vale regalo al destinatario
-const sendGiftCardRecipientEmail = async ({ recipientEmail, recipientName, senderName, amount, giftCardCode, message, expiryDate }) => {
-  const subject = '¡Has recibido un Vale Regalo de Platea!';
-  const html = `
-    <h1>¡Has recibido un Vale Regalo!</h1>
-    <p>¡${senderName} te ha enviado un Vale Regalo de €${amount}!</p>
-    <p>Tu código de Vale Regalo es: <strong>${giftCardCode}</strong></p>
-    ${message ? `<p>Mensaje: ${message}</p>` : ''}
-    <p>Este Vale Regalo es válido hasta el ${new Date(expiryDate).toLocaleDateString()}</p>
-    <p>Puedes usar este código en nuestro restaurante para disfrutar de una experiencia gastronómica única.</p>
-  `;
+const sendGiftCardRecipientEmail = async ({ recipientEmail, recipientName, senderName, amount, giftCardCode, message, expiryDate, restaurant }) => {
+  try {
+    // Generate QR code with gift card details
+    const qrData = JSON.stringify({
+      giftCardCode,
+      amount,
+      expiryDate,
+      recipientName
+    });
+    
+    // Generate QR code as Buffer
+    const qrCodeBuffer = await QRCode.toBuffer(qrData);
 
-  return sendEmail({ to: recipientEmail, subject, html });
+    const subject = `¡Has recibido un Vale Regalo de ${restaurant.name}!`;
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Vale Regalo ${restaurant.name}</title>
+        <style>
+          body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .header {
+            text-align: center;
+            padding: 30px 0;
+            background: #f8f8f8;
+            border-radius: 8px;
+            margin-bottom: 30px;
+          }
+          .gift-card-code {
+            background: #2d3748;
+            color: #ffffff;
+            padding: 15px 25px;
+            border-radius: 6px;
+            font-size: 24px;
+            font-family: monospace;
+            letter-spacing: 2px;
+            margin: 20px 0;
+            text-align: center;
+          }
+          .details {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 25px;
+            margin: 20px 0;
+          }
+          .qr-section {
+            text-align: center;
+            margin: 30px 0;
+          }
+          .qr-code {
+            width: 200px;
+            height: 200px;
+            margin: 20px auto;
+          }
+          .message {
+            background: #fffbeb;
+            border-left: 4px solid #f59e0b;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+          }
+          .footer {
+            text-align: center;
+            color: #718096;
+            font-size: 14px;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e2e8f0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 style="font-size: 28px; color: #1a1a1a; margin: 0; font-weight: 600;">${restaurant.name}</h1>
+          <p style="color: #666; margin-top: 10px;">¡Has recibido un Vale Regalo!</p>
+          <p style="color: #666;">De parte de ${senderName}</p>
+        </div>
+
+        <p style="font-size: 18px;">Estimado/a ${recipientName},</p>
+        <p>${senderName} te ha enviado un Vale Regalo por valor de €${amount} para disfrutar en ${restaurant.name}.</p>
+
+        <div class="gift-card-code">
+          ${giftCardCode}
+        </div>
+
+        <div class="details">
+          <div style="margin-bottom: 15px;">
+            <div style="font-size: 14px; color: #718096;">Valor del Vale Regalo</div>
+            <div style="font-size: 24px; color: #2d3748; font-weight: 500;">€${amount}</div>
+          </div>
+          <div>
+            <div style="font-size: 14px; color: #718096;">Válido hasta</div>
+            <div style="font-size: 16px; color: #2d3748;">${new Date(expiryDate).toLocaleDateString('es-ES', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })}</div>
+          </div>
+          <div style="margin-top: 15px;">
+            <div style="font-size: 14px; color: #718096;">Dirección del Restaurante</div>
+            <div style="font-size: 16px; color: #2d3748;">${restaurant.contact.address}</div>
+          </div>
+        </div>
+
+        ${message ? `
+          <div class="message">
+            <div style="font-weight: 500; margin-bottom: 5px;">Mensaje personal:</div>
+            ${message}
+          </div>
+        ` : ''}
+
+        <div class="qr-section">
+          <p style="font-weight: 500; color: #2d3748;">Código QR de tu Vale Regalo</p>
+          <p style="color: #718096; font-size: 14px;">Muestra este código en el restaurante para canjearlo</p>
+          <img src="cid:qrcode" alt="QR Code" class="qr-code">
+        </div>
+
+        <div class="footer">
+          <p>Puedes usar este Vale Regalo en cualquier momento antes de su fecha de vencimiento.</p>
+          <p style="margin-top: 20px;">¡Esperamos que disfrutes de tu experiencia gastronómica!</p>
+          <div style="color: #a0aec0; margin-top: 15px;">
+            ${restaurant.name}<br>
+            ${restaurant.contact.address}<br>
+            ${restaurant.contact.phone}
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await transporter.sendMail({
+      from: `"${restaurant.name}" <${process.env.EMAIL_FROM}>`,
+      to: recipientEmail,
+      subject,
+      html,
+      attachments: [{
+        filename: 'qrcode.png',
+        content: qrCodeBuffer,
+        cid: 'qrcode'
+      }]
+    });
+
+    console.log(`Gift card email sent to ${recipientEmail}`);
+  } catch (error) {
+    console.error('Error sending gift card email:', error);
+    throw error;
+  }
 };
 
 // Función específica para enviar email de confirmación al comprador
-const sendGiftCardSenderEmail = async ({ senderEmail, recipientName, amount, giftCardCode, expiryDate }) => {
-  const subject = 'Confirmación de compra de Vale Regalo Platea';
+const sendGiftCardSenderEmail = async ({ senderEmail, recipientName, amount, giftCardCode, expiryDate, restaurant }) => {
+  const subject = `Confirmación de compra de Vale Regalo - ${restaurant.name}`;
   const html = `
-    <h1>¡Gracias por tu compra!</h1>
-    <p>Has comprado un Vale Regalo de €${amount} para ${recipientName}.</p>
-    <p>El código del Vale Regalo es: <strong>${giftCardCode}</strong></p>
-    <p>El Vale Regalo ha sido enviado a ${recipientName}</p>
-    <p>Válido hasta: ${new Date(expiryDate).toLocaleDateString()}</p>
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Confirmación de Vale Regalo</title>
+      <style>
+        body {
+          font-family: 'Helvetica Neue', Arial, sans-serif;
+          line-height: 1.6;
+          color: #333;
+          max-width: 600px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        .header {
+          text-align: center;
+          padding: 30px 0;
+          background: #f8f8f8;
+          border-radius: 8px;
+          margin-bottom: 30px;
+        }
+        .details {
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 25px;
+          margin: 20px 0;
+        }
+        .footer {
+          text-align: center;
+          color: #718096;
+          font-size: 14px;
+          margin-top: 40px;
+          padding-top: 20px;
+          border-top: 1px solid #e2e8f0;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1 style="font-size: 28px; color: #1a1a1a; margin: 0; font-weight: 600;">${restaurant.name}</h1>
+        <p style="color: #666; margin-top: 10px;">¡Gracias por tu compra!</p>
+      </div>
+
+      <div class="details">
+        <p>Has comprado un Vale Regalo de €${amount} para ${recipientName} para disfrutar en ${restaurant.name}.</p>
+        <p>El código del Vale Regalo es: <strong>${giftCardCode}</strong></p>
+        <p>El Vale Regalo ha sido enviado a ${recipientName}</p>
+        <p>Válido hasta: ${new Date(expiryDate).toLocaleDateString('es-ES', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })}</p>
+      </div>
+
+      <div class="footer">
+        <p>Gracias por confiar en nosotros para esta ocasión especial.</p>
+        <div style="color: #a0aec0; margin-top: 15px;">
+          ${restaurant.name}<br>
+          ${restaurant.contact.address}<br>
+          ${restaurant.contact.phone}
+        </div>
+      </div>
+    </body>
+    </html>
   `;
 
-  return sendEmail({ to: senderEmail, subject, html });
+  try {
+    await transporter.sendMail({
+      from: `"${restaurant.name}" <${process.env.EMAIL_FROM}>`,
+      to: senderEmail,
+      subject,
+      html
+    });
+    console.log(`Confirmation email sent to ${senderEmail}`);
+  } catch (error) {
+    console.error('Error sending confirmation email:', error);
+    throw error;
+  }
 };
 
 module.exports = {

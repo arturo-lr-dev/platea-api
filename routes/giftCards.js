@@ -2,11 +2,12 @@ const express = require('express');
 const router = express.Router();
 const stripe = require('../config/stripe');
 const GiftCard = require('../models/GiftCard');
+const Restaurant = require('../models/Restaurant');
 const { sendGiftCardRecipientEmail, sendGiftCardSenderEmail } = require('../config/email');
 
 router.post('/create-payment-intent', async (req, res) => {
   try {
-    const { amount, recipientEmail, recipientName, senderEmail, senderName, message } = req.body;
+    const { amount, recipientEmail, recipientName, senderEmail, senderName, message, restaurantId } = req.body;
 
     // Create a PaymentIntent with the order amount and currency
     const paymentIntent = await stripe.paymentIntents.create({
@@ -18,7 +19,8 @@ router.post('/create-payment-intent', async (req, res) => {
         recipientName,
         senderEmail,
         senderName,
-        message
+        message,
+        restaurantId
       }
     });
 
@@ -33,7 +35,13 @@ router.post('/create-payment-intent', async (req, res) => {
 
 router.post('/confirm-gift-card', async (req, res) => {
   try {
-    const { paymentIntentId } = req.body;
+    const { paymentIntentId, restaurantId } = req.body;
+
+    // Get restaurant info
+    const restaurant = await Restaurant.findOne({ id: restaurantId });
+    if (!restaurant) {
+      throw new Error('Restaurant not found');
+    }
 
     // Verify the payment was successful
     const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -43,7 +51,7 @@ router.post('/confirm-gift-card', async (req, res) => {
     }
 
     // Generate gift card code
-    const prefix = 'PLATEA';
+    const prefix = restaurant.name.substring(0, 3).toUpperCase();
     const randomCode = Math.random().toString(36).substring(2, 10).toUpperCase();
     const giftCardCode = `${prefix}-${randomCode}`;
 
@@ -61,7 +69,8 @@ router.post('/confirm-gift-card', async (req, res) => {
       senderEmail: paymentIntent.metadata.senderEmail,
       message: paymentIntent.metadata.message,
       expiryDate,
-      stripePaymentIntentId: paymentIntentId
+      stripePaymentIntentId: paymentIntentId,
+      restaurantId
     });
 
     // Send email to recipient
@@ -72,7 +81,8 @@ router.post('/confirm-gift-card', async (req, res) => {
       amount: paymentIntent.amount / 100,
       giftCardCode,
       message: paymentIntent.metadata.message,
-      expiryDate
+      expiryDate,
+      restaurant
     });
 
     // Send confirmation email to sender
@@ -81,7 +91,8 @@ router.post('/confirm-gift-card', async (req, res) => {
       recipientName: paymentIntent.metadata.recipientName,
       amount: paymentIntent.amount / 100,
       giftCardCode,
-      expiryDate
+      expiryDate,
+      restaurant
     });
 
     res.json({

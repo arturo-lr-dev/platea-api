@@ -5,6 +5,63 @@ const GiftCard = require('../models/GiftCard');
 const Restaurant = require('../models/Restaurant');
 const { sendGiftCardRecipientEmail, sendGiftCardSenderEmail } = require('../config/email');
 
+// List all gift cards with filters
+router.get('/all', async (req, res) => {
+  try {
+    const { name, code, unused } = req.query;
+    let query = {};
+    
+    if (name) {
+      query.recipientName = new RegExp(name, 'i');
+    }
+    
+    if (code) {
+      query.code = new RegExp(code, 'i');
+    }
+    
+    if (unused === 'true') {
+      query.status = 'active';
+    }
+
+    const giftCards = await GiftCard.find(query).sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      data: giftCards
+    });
+  } catch (error) {
+    console.error('Error fetching gift cards:', error);
+    res.status(500).json({ error: 'Error al obtener los vales regalo' });
+  }
+});
+
+// Mark gift card as used
+router.put('/:id/use', async (req, res) => {
+  try {
+    const giftCard = await GiftCard.findById(req.params.id);
+    
+    if (!giftCard) {
+      return res.status(404).json({ error: 'Vale regalo no encontrado' });
+    }
+
+    if (giftCard.status !== 'active') {
+      return res.status(400).json({ error: 'Vale regalo no válido o ya usado' });
+    }
+
+    giftCard.status = 'used';
+    giftCard.usedAmount = giftCard.amount;
+    await giftCard.save();
+
+    res.json({
+      success: true,
+      data: giftCard
+    });
+  } catch (error) {
+    console.error('Error marking gift card as used:', error);
+    res.status(500).json({ error: 'Error al marcar el vale regalo como usado' });
+  }
+});
+
 router.post('/create-payment-intent', async (req, res) => {
   try {
     const { amount, recipientEmail, recipientName, senderEmail, senderName, message, restaurantId } = req.body;

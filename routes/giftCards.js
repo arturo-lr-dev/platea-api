@@ -8,7 +8,7 @@ const { sendGiftCardRecipientEmail, sendGiftCardSenderEmail } = require('../conf
 // List all gift cards with filters
 router.get('/all', async (req, res) => {
   try {
-    const { name, code, unused } = req.query;
+    const { name, code, unused, restaurantId } = req.query;
     let query = {};
     
     if (name) {
@@ -21,6 +21,10 @@ router.get('/all', async (req, res) => {
     
     if (unused === 'true') {
       query.status = 'active';
+    }
+
+    if (restaurantId) {
+      query.restaurantId = restaurantId;
     }
 
     const giftCards = await GiftCard.find(query).sort({ createdAt: -1 });
@@ -38,10 +42,19 @@ router.get('/all', async (req, res) => {
 // Mark gift card as used
 router.put('/:id/use', async (req, res) => {
   try {
-    const giftCard = await GiftCard.findById(req.params.id);
+    const { restaurantId } = req.body;
+    
+    if (!restaurantId) {
+      return res.status(400).json({ error: 'Se requiere el ID del restaurante' });
+    }
+
+    const giftCard = await GiftCard.findOne({
+      _id: req.params.id,
+      restaurantId
+    });
     
     if (!giftCard) {
-      return res.status(404).json({ error: 'Vale regalo no encontrado' });
+      return res.status(404).json({ error: 'Vale regalo no encontrado o no válido para este restaurante' });
     }
 
     if (giftCard.status !== 'active') {
@@ -167,10 +180,18 @@ router.post('/confirm-gift-card', async (req, res) => {
 // Endpoint para verificar un vale regalo
 router.get('/verify/:code', async (req, res) => {
   try {
-    const giftCard = await GiftCard.findOne({ code: req.params.code });
+    const { restaurantId } = req.query;
+    if (!restaurantId) {
+      return res.status(400).json({ error: 'Se requiere el ID del restaurante' });
+    }
+
+    const giftCard = await GiftCard.findOne({ 
+      code: req.params.code,
+      restaurantId: restaurantId
+    });
     
     if (!giftCard) {
-      return res.status(404).json({ error: 'Vale regalo no encontrado' });
+      return res.status(404).json({ error: 'Vale regalo no encontrado o no válido para este restaurante' });
     }
 
     if (giftCard.status !== 'active') {
@@ -198,12 +219,19 @@ router.get('/verify/:code', async (req, res) => {
 // Endpoint para usar un vale regalo
 router.post('/redeem', async (req, res) => {
   try {
-    const { code, amount } = req.body;
+    const { code, amount, restaurantId } = req.body;
     
-    const giftCard = await GiftCard.findOne({ code });
+    if (!restaurantId) {
+      return res.status(400).json({ error: 'Se requiere el ID del restaurante' });
+    }
+
+    const giftCard = await GiftCard.findOne({ 
+      code,
+      restaurantId
+    });
     
     if (!giftCard) {
-      return res.status(404).json({ error: 'Vale regalo no encontrado' });
+      return res.status(404).json({ error: 'Vale regalo no encontrado o no válido para este restaurante' });
     }
 
     if (giftCard.status !== 'active') {
